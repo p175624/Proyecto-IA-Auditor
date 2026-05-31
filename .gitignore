@@ -1,0 +1,5 @@
+#Ignora .env
+.env
+
+#Ignora venv
+.venv/
