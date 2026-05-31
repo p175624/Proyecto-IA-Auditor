@@ -5,13 +5,19 @@ import markdown
 from xhtml2pdf import pisa
 from google import genai
 import hashlib
-from datetime import datetime  # FIX: para timestamp en nombre del PDF
+from datetime import datetime
+from dotenv import load_dotenv
 
-# --- CONFIGURACIÓN ---
-IP_VM = "IP_DE_SERVIDOR_A_AUDITAR"
-USUARIO_SSH = "USUARIO_AUTORIZADO"
-RUTA_LLAVE = r"\ruta_a_llave\id_ed25519"
-RUTA_KNOWN_HOSTS = os.path.expanduser("~/.ssh/known_hosts")  # FIX: para RejectPolicy
+# --- CARGAR VARIABLES DE ENTORNO ---
+load_dotenv()
+
+IP_VM = os.environ["SSH_HOST"]
+USUARIO_SSH = os.environ["SSH_USER"]
+RUTA_LLAVE = os.environ["SSH_KEY_PATH"]
+RUTA_KNOWN_HOSTS = os.environ.get(
+    "SSH_KNOWN_HOSTS_PATH",
+    os.path.expanduser("~/.ssh/known_hosts")
+)
 
 # --- FUNCIONES DE SEGURIDAD ---
 def anonimizar(texto):
@@ -21,7 +27,6 @@ def anonimizar(texto):
 def fase_1_5_extraer_puertos(ssh):
     print("[*] Extrayendo puertos abiertos...")
 
-    # FIX: usar set para evitar duplicados IPv4/IPv6
     puertos_vistos = set()
     puertos = []
 
@@ -51,11 +56,11 @@ def fase_1_5_extraer_puertos(ssh):
 
             try:
                 puerto = int(puerto_str)
-            except ValueError:  # FIX: solo capturar la excepción esperada
+            except ValueError:
                 continue
 
             clave = (puerto, partes[0])
-            if clave in puertos_vistos:  # FIX: deduplicar
+            if clave in puertos_vistos:
                 continue
 
             puertos_vistos.add(clave)
@@ -75,7 +80,6 @@ def fase_1_extraer_datos():
 
     ssh = paramiko.SSHClient()
 
-    # FIX: RejectPolicy en lugar de AutoAddPolicy para evitar ataques MITM
     try:
         ssh.load_host_keys(RUTA_KNOWN_HOSTS)
     except FileNotFoundError:
@@ -128,7 +132,6 @@ def fase_1_extraer_datos():
                 "estandar": "CIS Benchmarks"
             },
             "servidor_auditado": {
-                # FIX: IP también anonimizada antes de enviar a la IA
                 "ip_hash": anonimizar(IP_VM),
                 "sistema_operativo": "Ubuntu Server"
             },
@@ -181,7 +184,7 @@ JSON:
 """
 
     response = client.models.generate_content(
-        model="gemini-3.5-flash",  # OK: modelo confirmado como válido
+        model="gemini-3.5-flash",
         contents=prompt
     )
 
@@ -191,7 +194,6 @@ JSON:
 def fase_3_generar_pdf(texto_markdown):
     print("[*] FASE 3: Generando PDF...")
 
-    # FIX: nombre de archivo con timestamp para evitar sobreescribir reportes anteriores
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_archivo = f"Reporte_Auditoria_{timestamp}.pdf"
 
@@ -215,7 +217,6 @@ def fase_3_generar_pdf(texto_markdown):
     with open(nombre_archivo, "wb") as f:
         pisa.CreatePDF(html_final, dest=f)
 
-    # FIX: también guardar el markdown como archivo .md para auditoría
     nombre_md = nombre_archivo.replace(".pdf", ".md")
     with open(nombre_md, "w", encoding="utf-8") as f:
         f.write(texto_markdown)
@@ -225,8 +226,12 @@ def fase_3_generar_pdf(texto_markdown):
 
 # --- MAIN ---
 if __name__ == "__main__":
-    if not os.environ.get("GEMINI_API_KEY"):
-        print("[-] Error: Configura la variable de entorno GEMINI_API_KEY.")
+    vars_requeridas = ["GEMINI_API_KEY", "SSH_HOST", "SSH_USER", "SSH_KEY_PATH"]
+    faltantes = [v for v in vars_requeridas if not os.environ.get(v)]
+
+    if faltantes:
+        print(f"[-] Error: Faltan las siguientes variables de entorno: {', '.join(faltantes)}")
+        print("    Revisa tu archivo .env o configúralas manualmente.")
     else:
         datos = fase_1_extraer_datos()
         if datos:
