@@ -10,7 +10,7 @@ from datetime import datetime  # FIX: para timestamp en nombre del PDF
 # --- CONFIGURACIÓN ---
 IP_VM = "IP_DE_SERVIDOR_A_AUDITAR"
 USUARIO_SSH = "USUARIO_AUTORIZADO"
-RUTA_LLAVE = r"\users\...\.ssh\id_ed25519"
+RUTA_LLAVE = r"\ruta_a_llave\id_ed25519"
 RUTA_KNOWN_HOSTS = os.path.expanduser("~/.ssh/known_hosts")  # FIX: para RejectPolicy
 
 # --- FUNCIONES DE SEGURIDAD ---
