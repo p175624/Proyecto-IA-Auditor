@@ -1,4 +1,6 @@
-Proyecto de Herramientas de Inteligencia Artificial para Ingenieros
+# 🔐 Pipeline de Auditoría de Seguridad con IA
+
+Script automatizado que realiza auditorías de seguridad en servidores Linux mediante SSH, analiza los hallazgos con Gemini 3.5 Flash y genera un reporte profesional en PDF.
 
 ```mermaid
 
@@ -20,3 +22,88 @@ flowchart TB
     style E fill:#1e2f3f,stroke:#0984e3,stroke-width:2px,color:#fff
     style F fill:#2f1e3f,stroke:#a29bfe,stroke-width:2px,color:#fff
     style G fill:#2f2e3f,stroke:#dfe6e9,stroke-width:2px,color:#fff
+
+
+---
+
+## Requisitos previos
+
+- Python 3.10 o superior
+- Acceso SSH al servidor objetivo con una llave **Ed25519**
+- El host del servidor debe estar registrado en tu archivo `known_hosts`
+- API Key de [Google Gemini](https://aistudio.google.com/apikey)
+
+---
+
+## Instalación
+
+```bash
+# 1. Clona el repositorio
+git clone https://github.com/tu-usuario/tu-repositorio.git
+cd tu-repositorio
+
+# 2. Instala las dependencias
+pip install -r requirements.txt
+```
+
+---
+
+## Configuración
+
+Crea un archivo `.env` en la raíz del proyecto con las siguientes variables:
+
+```env
+GEMINI_API_KEY=tu_api_key_de_gemini
+
+SSH_HOST=192.168.1.100
+SSH_USER=tu_usuario
+SSH_KEY_PATH=/ruta/a/tu/llave_ed25519
+
+# Opcional: ruta personalizada al known_hosts (por defecto usa ~/.ssh/known_hosts)
+# SSH_KNOWN_HOSTS_PATH=/ruta/personalizada/known_hosts
+```
+
+### Registrar el servidor en known_hosts
+
+Si aún no has conectado al servidor manualmente, registra su huella primero:
+
+```bash
+ssh-keyscan -H 192.168.1.100 >> ~/.ssh/known_hosts
+```
+
+---
+
+## Uso
+
+```bash
+python main.py
+```
+
+Al finalizar, encontrarás en el directorio de trabajo:
+
+```
+Reporte_Auditoria_YYYYMMDD_HHMMSS.pdf
+Reporte_Auditoria_YYYYMMDD_HHMMSS.md
+```
+
+---
+
+## Seguridad
+
+- Las IPs y nombres de usuario **nunca se envían a la API**. Antes del análisis son reemplazados por su hash SHA-256.
+- La conexión SSH usa `RejectPolicy`, lo que significa que el script **rechaza hosts desconocidos** en lugar de aceptarlos automáticamente.
+- Se requiere autenticación con llave privada Ed25519; no se admiten contraseñas.
+
+---
+
+## Estructura del proyecto
+
+```
+.
+├── main.py            # Script principal
+├── requirements.txt   # Dependencias
+├── .env.example       # Ejemplo de Variables de entorno (.env)
+└── .gitignore
+```
+
+---
