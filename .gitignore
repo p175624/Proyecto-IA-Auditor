@@ -1,5 +1,5 @@
-#Ignora .env
 .env
-
-#Ignora venv
-.venv/
+*.pdf
+*.md
+!README.md
+__pycache__/
