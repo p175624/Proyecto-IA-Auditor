@@ -4,7 +4,7 @@ import paramiko
 import markdown
 from xhtml2pdf import pisa
 from google import genai
-import hashlib
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -19,55 +19,56 @@ RUTA_KNOWN_HOSTS = os.environ.get(
     os.path.expanduser("~/.ssh/known_hosts")
 )
 
-# --- FUNCIONES DE SEGURIDAD ---
-def anonimizar(texto):
-    return hashlib.sha256(texto.encode()).hexdigest()
+# --- DICCIONARIO GLOBAL PARA SUSTITUCIÓN DE ANONIMIZACIÓN ---
+_MAPEO_USUARIOS = {}
+_CONTADOR_USUARIOS = 1
 
-# --- FASE 1.5: PUERTOS ---
+def anonimizar_usuario(nombre_real):
+    """Sustituye nombres reales por seudónimos legibles preservando consistencia."""
+    global _CONTADOR_USUARIOS
+    # Evitamos anonimizar cuentas raíz del sistema críticas para el análisis
+    if nombre_real in ["root", "daemon", "bin"]:
+        return nombre_real
+        
+    if nombre_real not in _MAPEO_USUARIOS:
+        _MAPEO_USUARIOS[nombre_real] = f"User_{_CONTADOR_USUARIOS}"
+        _CONTADOR_USUARIOS += 1
+    return _MAPEO_USUARIOS[nombre_real]
+
+# --- FASE 1.5: PUERTOS (Optimizado con Regex) ---
 def fase_1_5_extraer_puertos(ssh):
     print("[*] Extrayendo puertos abiertos...")
-
     puertos_vistos = set()
     puertos = []
 
     try:
+        # Probamos ss primero, si falla usamos netstat
         comando = "ss -tuln"
         stdin, stdout, stderr = ssh.exec_command(comando)
         salida = stdout.read().decode("utf-8")
 
-        if not salida.strip():
+        if "LISTEN" not in salida:
             comando = "netstat -tuln"
             stdin, stdout, stderr = ssh.exec_command(comando)
             salida = stdout.read().decode("utf-8")
 
+        # Expresión regular para capturar el puerto al final de la dirección local (soporta IPv4 e IPv6)
+        # Busca patrones como :22 o .22 en un entorno de red, aislando el número final antes de los espacios
+        regex_puerto = re.compile(r'[:.](\d+)\s+\S+\s+LISTEN')
+
         for linea in salida.splitlines():
-            if "LISTEN" not in linea:
-                continue
-
-            partes = linea.split()
-            if len(partes) <= 4:
-                continue
-
-            direccion = partes[4]
-            if ":" not in direccion:
-                continue
-
-            puerto_str = direccion.split(":")[-1]
-
-            try:
-                puerto = int(puerto_str)
-            except ValueError:
-                continue
-
-            clave = (puerto, partes[0])
-            if clave in puertos_vistos:
-                continue
-
-            puertos_vistos.add(clave)
-            puertos.append({
-                "puerto": puerto,
-                "protocolo": partes[0]
-            })
+            match = regex_puerto.search(linea)
+            if match:
+                puerto = int(match.group(1))
+                protocolo = "tcp" if "tcp" in linea.lower() else "udp"
+                
+                clave = (puerto, protocolo)
+                if clave not in puertos_vistos:
+                    puertos_vistos.add(clave)
+                    puertos.append({
+                        "puerto": puerto,
+                        "protocolo": protocolo
+                    })
 
     except Exception as e:
         print(f"[-] Error extrayendo puertos: {e}")
@@ -77,14 +78,15 @@ def fase_1_5_extraer_puertos(ssh):
 # --- FASE 1: EXTRACCIÓN ---
 def fase_1_extraer_datos():
     print("\n[*] FASE 1: Extrayendo datos del servidor...")
-
     ssh = paramiko.SSHClient()
 
     try:
         ssh.load_host_keys(RUTA_KNOWN_HOSTS)
     except FileNotFoundError:
-        print(f"[-] Advertencia: no se encontró {RUTA_KNOWN_HOSTS}. Agrega el host manualmente con ssh-keyscan.")
-    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+        print(f"[-] Advertencia: no se encontró {RUTA_KNOWN_HOSTS}.")
+    
+    # Cambiado a AutoAddPolicy para despliegues de auditoría más ágiles
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     usuarios_encontrados = []
 
@@ -98,7 +100,7 @@ def fase_1_extraer_datos():
         salida = stdout.read().decode("utf-8")
 
         for linea in salida.splitlines():
-            if not linea.strip():
+            if not linea.strip() or linea.startswith("#"):
                 continue
 
             datos = linea.split(":")
@@ -106,7 +108,7 @@ def fase_1_extraer_datos():
                 continue
 
             nombre_real = datos[0]
-            shell = datos[-1]
+            shell = datos[-1].strip()
 
             try:
                 uid = int(datos[2])
@@ -118,9 +120,10 @@ def fase_1_extraer_datos():
                 and not shell.endswith("false")
             )
 
+            # Filtramos para enfocarnos en cuentas de usuarios reales o interactivas
             if uid >= 1000 or tiene_login:
                 usuarios_encontrados.append({
-                    "usuario_hash": anonimizar(nombre_real),
+                    "usuario_anonimizado": anonimizar_usuario(nombre_real),
                     "uid": uid,
                     "shell": shell,
                     "tiene_login": tiene_login
@@ -132,7 +135,6 @@ def fase_1_extraer_datos():
                 "estandar": "CIS Benchmarks"
             },
             "servidor_auditado": {
-                "ip_hash": anonimizar(IP_VM),
                 "sistema_operativo": "Ubuntu Server"
             },
             "hallazgos_seguridad": {
@@ -149,7 +151,6 @@ def fase_1_extraer_datos():
     except Exception as e:
         print(f"[-] Error en extracción: {e}")
         return None
-
     finally:
         ssh.close()
         print("[*] Conexión SSH cerrada.")
@@ -157,43 +158,43 @@ def fase_1_extraer_datos():
 # --- FASE 2: IA ---
 def fase_2_analizar_con_ia(datos_json):
     print("[*] FASE 2: Analizando con IA...")
-
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+    # Aplicamos el prompt robustecido con restricciones técnicas profesionales
     prompt = f"""
-Eres un Consultor Senior en Ciberseguridad especializado en sistemas Linux.
+Rol: Eres un Consultor Senior en Ciberseguridad especializado en sistemas Linux.
 
-Analiza el siguiente JSON que contiene:
-- Usuarios del sistema (anonimizados)
-- Puertos abiertos detectados
+Contexto: Analiza el siguiente JSON que contiene los datos extraídos de un servidor bajo auditoría. Los datos de usuarios han sido previamente anonimizados por sustitución para proteger la privacidad del sistema.
 
-Objetivos:
-- Detectar cuentas con acceso interactivo
-- Identificar configuraciones inseguras
-- Analizar la exposición de servicios en red
-- Correlacionar riesgos (ej: SSH abierto + múltiples usuarios)
+Restricción Crítica: Basa tu análisis única y exclusivamente en los datos proporcionados en el JSON. No asumas ni inventes la existencia de otros servicios, usuarios o vulnerabilidades que no estén explícitamente listados.
 
-Genera un reporte en Markdown profesional con:
-1. Resumen Ejecutivo con score de seguridad
-2. Hallazgos prioritarios
-3. Tabla de riesgos
-4. Recomendaciones técnicas con comandos
+Objetivos de Análisis:
+1. Detectar cuentas con acceso interactivo (shells válidas como /bin/bash).
+2. Identificar configuraciones potencialmente inseguras en los usuarios de sistema.
+3. Analizar la exposición de servicios en red mediante los puertos abiertos detectados.
+4. Correlacionar riesgos (ej: servicios críticos expuestos junto a la presencia de múltiples usuarios activos).
 
-JSON:
+Formato de Salida: Genera un reporte exclusivo en Markdown profesional utilizando la siguiente estructura:
+
+1. Resumen Ejecutivo: Incluye un Score de Seguridad numérico del 0 al 100 (donde 100 es totalmente seguro), justificando la deducción de puntos. Traduce el estado técnico a un lenguaje comprensible para la toma de decisiones gerenciales.
+2. Hallazgos Prioritarios: Lista de los problemas más críticos encontrados.
+3. Tabla de Riesgos: Una tabla Markdown con las columnas: ID | Riesgo Detectado | Nivel de Impacto (Crítico/Alto/Medio/Bajo) | Descripción.
+4. Recomendaciones Técnicas: Pasos de mitigación específicos utilizando comandos de terminal para entornos Linux (Debian/Ubuntu), encerrados en bloques de código adecuados.
+
+Datos JSON a analizar:
 {json.dumps(datos_json, indent=2)}
 """
 
+    # Cambiado al ID de modelo correcto del SDK actual
     response = client.models.generate_content(
-        model="gemini-3.5-flash",
+        model="gemini-2.5-flash",
         contents=prompt
     )
-
     return response.text
 
 # --- FASE 3: PDF ---
 def fase_3_generar_pdf(texto_markdown):
     print("[*] FASE 3: Generando PDF...")
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_archivo = f"Reporte_Auditoria_{timestamp}.pdf"
 
@@ -231,7 +232,6 @@ if __name__ == "__main__":
 
     if faltantes:
         print(f"[-] Error: Faltan las siguientes variables de entorno: {', '.join(faltantes)}")
-        print("    Revisa tu archivo .env o configúralas manualmente.")
     else:
         datos = fase_1_extraer_datos()
         if datos:
