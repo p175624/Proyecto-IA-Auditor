@@ -2,8 +2,10 @@ import os
 import json
 import paramiko
 import markdown
+import time
 from xhtml2pdf import pisa
 from google import genai
+from google.genai.errors import APIError
 import re
 from datetime import datetime
 from dotenv import load_dotenv
@@ -37,7 +39,7 @@ def anonimizar_usuario(nombre_real):
 
 # --- FASE 1.5: PUERTOS (Optimizado con Regex) ---
 def fase_1_5_extraer_puertos(ssh):
-    print("[*] Extrayendo puertos abiertos...")
+    print("  🔍  Escaneando puertos en escucha...")
     puertos_vistos = set()
     puertos = []
 
@@ -71,31 +73,65 @@ def fase_1_5_extraer_puertos(ssh):
                     })
 
     except Exception as e:
-        print(f"[-] Error extrayendo puertos: {e}")
+        print(f"  ❌  Error al escanear puertos: {e}")
 
     return puertos
 
 # --- FASE 1: EXTRACCIÓN ---
+class ConfirmarLlaveHostPolicy(paramiko.MissingHostKeyPolicy):
+    """
+    Política personalizada que advierte al usuario sobre llaves de host desconocidas
+    y solicita confirmación explícita antes de guardarla en known_hosts.
+    """
+    def missing_host_key(self, client, hostname, key):
+        print(f"\n  ┌─────────────────────────────────────────────────┐")
+        print(f"  │  ⚠️   ADVERTENCIA DE SEGURIDAD — HOST DESCONOCIDO  │")
+        print(f"  └─────────────────────────────────────────────────┘")
+        print(f"  🖥️   Host       : {hostname}")
+        print(f"  🔑  Tipo llave  : {key.get_name()}")
+        print(f"  🔏  Huella (Hex): {key.get_fingerprint().hex()}")
+        
+        # Solicitar confirmación interactiva al usuario
+        respuesta = input("\n  ❓  ¿Confiar en este host y continuar la auditoría? (s/n): ").strip().lower()
+        
+        if respuesta == 's':
+            client._system_host_keys.add(hostname, key.get_name(), key)
+            if client._host_keys_filename is not None:
+                client.save_host_keys(client._host_keys_filename)
+            print("  ✅  Llave aceptada y guardada en known_hosts. Continuando...\n")
+            return
+        else:
+            print("  🚫  Conexión abortada por el usuario.")
+            raise paramiko.SSHException(f"Conexión abortada por el usuario: Host {hostname} no verificado.")
+
 def fase_1_extraer_datos():
-    print("\n[*] FASE 1: Extrayendo datos del servidor...")
+    print("\n┌──────────────────────────────────────────────────────┐")
+    print("│  📡  FASE 1 — Extracción de datos del servidor        │")
+    print("└──────────────────────────────────────────────────────┘")
     ssh = paramiko.SSHClient()
 
     try:
         ssh.load_host_keys(RUTA_KNOWN_HOSTS)
     except FileNotFoundError:
-        print(f"[-] Advertencia: no se encontró {RUTA_KNOWN_HOSTS}.")
+        print(f"  ⚠️   known_hosts no encontrado en: {RUTA_KNOWN_HOSTS}")
     
     # Cambiado a AutoAddPolicy para despliegues de auditoría más ágiles
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.set_missing_host_key_policy(ConfirmarLlaveHostPolicy())
+
 
     usuarios_encontrados = []
 
     try:
         llave = paramiko.Ed25519Key.from_private_key_file(RUTA_LLAVE)
+        print(f"  🔐  Conectando a {IP_VM} como '{USUARIO_SSH}'...")
         ssh.connect(hostname=IP_VM, username=USUARIO_SSH, pkey=llave, timeout=10)
+        print(f"  ✅  Conexión SSH establecida exitosamente.")
 
         puertos_abiertos = fase_1_5_extraer_puertos(ssh)
+        print(f"  📋  Puertos detectados: {len(puertos_abiertos)}")
 
+        print("  👤  Analizando cuentas de usuario (/etc/passwd)...")
         stdin, stdout, stderr = ssh.exec_command("cat /etc/passwd")
         salida = stdout.read().decode("utf-8")
 
@@ -129,6 +165,8 @@ def fase_1_extraer_datos():
                     "tiene_login": tiene_login
                 })
 
+        print(f"  👥  Usuarios relevantes encontrados: {len(usuarios_encontrados)}")
+
         return {
             "metadata_auditoria": {
                 "origen": "Script Python",
@@ -149,15 +187,18 @@ def fase_1_extraer_datos():
         }
 
     except Exception as e:
-        print(f"[-] Error en extracción: {e}")
+        print(f"  ❌  Error durante la extracción: {e}")
         return None
     finally:
         ssh.close()
-        print("[*] Conexión SSH cerrada.")
+        print("  🔌  Conexión SSH cerrada.")
 
-# --- FASE 2: IA ---
+# --- FASE 2: IA --- IA (Optimizado con Estrategia de Reintentos para Horas Pico) ---
 def fase_2_analizar_con_ia(datos_json):
-    print("[*] FASE 2: Analizando con IA...")
+    print("\n┌──────────────────────────────────────────────────────┐")
+    print("│  🤖  FASE 2 — Análisis con Inteligencia Artificial    │")
+    print("└──────────────────────────────────────────────────────┘")
+    print("  ⏳  Enviando datos a Gemini 2.5 Flash, por favor espera...")
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
     # Aplicamos el prompt robustecido con restricciones técnicas profesionales
@@ -184,17 +225,48 @@ Formato de Salida: Genera un reporte exclusivo en Markdown profesional utilizand
 Datos JSON a analizar:
 {json.dumps(datos_json, indent=2)}
 """
+    
 
-    # Cambiado al ID de modelo correcto del SDK actual
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
-    return response.text
+    MAX_RETRIES = 3       # Número máximo de intentos antes de rendirse
+    INITIAL_DELAY = 4     # Segundos a esperar tras el primer fallo
+    
+    for intento in range(1, MAX_RETRIES + 1):
+        try:
+            print(f"  ⏳  Enviando datos a Gemini... (Intento {intento}/{MAX_RETRIES})")
+            
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            
+            print("  ✅  ¡Análisis de IA completado con éxito!")
+            return response.text
+
+        except (APIError, Exception) as e:
+            print(f"  ⚠️   El servicio de IA está experimentando alta demanda. (Detalle: {e})")
+            
+            if intento < MAX_RETRIES:
+                delay = INITIAL_DELAY * (2 ** (intento - 1))
+                print(f"  🔄  Reintentando en {delay} segundos...")
+                time.sleep(delay)
+            else:
+                print()
+                print("  ┌─────────────────────────────────────────────────────┐")
+                print("  │  ❌  ERROR CRÍTICO — Conexión con Gemini fallida      │")
+                print("  ├─────────────────────────────────────────────────────┤")
+                print("  │  🌐  Los servidores de IA presentan saturación.       │")
+                print("  │  💾  Resguarda tu archivo JSON e inténtalo más tarde. │")
+                print("  └─────────────────────────────────────────────────────┘")
+                print()
+                
+    return None
 
 # --- FASE 3: PDF ---
 def fase_3_generar_pdf(texto_markdown):
-    print("[*] FASE 3: Generando PDF...")
+    print("\n┌──────────────────────────────────────────────────────┐")
+    print("│  📄  FASE 3 — Generación del Reporte PDF              │")
+    print("└──────────────────────────────────────────────────────┘")
+    print("  ⚙️   Convirtiendo Markdown a HTML y compilando PDF...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nombre_archivo = f"Reporte_Auditoria_{timestamp}.pdf"
 
@@ -222,18 +294,33 @@ def fase_3_generar_pdf(texto_markdown):
     with open(nombre_md, "w", encoding="utf-8") as f:
         f.write(texto_markdown)
 
-    print(f"[+] Reporte PDF:      {nombre_archivo}")
-    print(f"[+] Reporte Markdown: {nombre_md}")
+    print(f"  📑  Reporte PDF      → {nombre_archivo}")
+    print(f"  📝  Reporte Markdown → {nombre_md}")
 
 # --- MAIN ---
 if __name__ == "__main__":
+    print()
+    print("╔══════════════════════════════════════════════════════╗")
+    print("║       🛡️  PIPELINE DE AUDITORÍA DE SEGURIDAD  🛡️       ║")
+    print("║              Estándar: CIS Benchmarks                ║")
+    print("╚══════════════════════════════════════════════════════╝")
+    print()
+
     vars_requeridas = ["GEMINI_API_KEY", "SSH_HOST", "SSH_USER", "SSH_KEY_PATH"]
     faltantes = [v for v in vars_requeridas if not os.environ.get(v)]
 
     if faltantes:
-        print(f"[-] Error: Faltan las siguientes variables de entorno: {', '.join(faltantes)}")
+        print(f"  ❌  Error: Faltan las siguientes variables de entorno:")
+        for v in faltantes:
+            print(f"       • {v}")
     else:
+        print(f"  ✅  Variables de entorno verificadas correctamente.")
         datos = fase_1_extraer_datos()
         if datos:
             reporte = fase_2_analizar_con_ia(datos)
             fase_3_generar_pdf(reporte)
+            print()
+            print("╔══════════════════════════════════════════════════════╗")
+            print("║          ✅  AUDITORÍA COMPLETADA CON ÉXITO           ║")
+            print("╚══════════════════════════════════════════════════════╝")
+            print()
