@@ -103,4 +103,4 @@ Reporte_Auditoria_YYYYMMDD_HHMMSS.md
 ├── .env.example       # Ejemplo de Variables de entorno (.env)
 └── .gitignore
 ```
----
+---"# Auditor-IA" 
