@@ -29,8 +29,8 @@ flowchart TB
 
 ### 1. Clonar el repositorio
 ```bash
-git clone https://github.com/p175624/Proyecto_IA
-cd Proyecto_IA
+git clone https://github.com/p175624/Proyecto-IA-Auditor
+cd Proyecto-IA-Auditor
 ```
 
 ### 2. Crear y activar el entorno virtual
