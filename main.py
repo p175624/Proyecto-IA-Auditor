@@ -27,9 +27,9 @@ Requisitos de Variables de Entorno (.env):
     - SSH_KEY_PATH: Ruta a la llave privada SSH
     - SSH_KNOWN_HOSTS_PATH: (Opcional) Ruta a known_hosts
 
-Autor: Script de Auditoría Automatizada
+Autor: 175624
 Versión: 2.0 (Con Structured Outputs)
-Fecha: 2025
+Fecha: 2026
 ================================================================================
 """
 
