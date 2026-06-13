@@ -190,7 +190,7 @@ python main.py
 ```
 
 ## Flujo de ejecución esperado
-
+```bash
 ╔══════════════════════════════════════════════════════╗
 ║       🛡️  PIPELINE DE AUDITORÍA DE SEGURIDAD  🛡️       ║
 ║       Estándar: CIS — Con Salidas Estructuradas       ║
@@ -241,6 +241,7 @@ python main.py
 ╔══════════════════════════════════════════════════════╗
 ║          ✅  AUDITORÍA COMPLETADA CON ÉXITO           ║
 ╚══════════════════════════════════════════════════════╝
+```
 
 Al finalizar, encontrarás en el directorio de trabajo:
 ```
