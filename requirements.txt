@@ -1,5 +1,6 @@
-paramiko==5.0.0
-Markdown==3.7
-xhtml2pdf==0.2.17
-google-genai==2.8.0
-python-dotenv==1.1.0
+paramiko
+python-dotenv
+google-genai
+markdown
+xhtml2pdf
+pydantic
