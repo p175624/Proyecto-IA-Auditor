@@ -190,6 +190,7 @@ python main.py
 ```
 
 ## Flujo de ejecución esperado
+
 ╔══════════════════════════════════════════════════════╗
 ║       🛡️  PIPELINE DE AUDITORÍA DE SEGURIDAD  🛡️       ║
 ║       Estándar: CIS — Con Salidas Estructuradas       ║
@@ -248,6 +249,7 @@ Reporte_Auditoria_YYYYMMDD_HHMMSS.md
 ```
 ---
 ## Seguridad
+
 ✅ Verificación de host SSH (previene MITM attacks)
 
 ✅ Anonimización de datos antes del análisis externo
@@ -263,14 +265,5 @@ Reporte_Auditoria_YYYYMMDD_HHMMSS.md
 ✅ Múltiples estrategias de detección con fallback
 
 ✅ Soporte opcional de sudo (no requiere permisos excesivos)
----
 
-## Estructura del proyecto
-```
-.
-├── main.py            # Script principal
-├── requirements.txt   # Dependencias
-├── .env.example       # Ejemplo de Variables de entorno (.env)
-└── .gitignore
-```
 ---
