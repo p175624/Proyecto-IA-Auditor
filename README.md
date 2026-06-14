@@ -6,79 +6,36 @@
 > **Pipeline automatizado de auditoría de seguridad para servidores Linux basado en estándares CIS Benchmarks, con análisis inteligente mediante Google Gemini AI, detección de servicios por puerto, y generación de reportes profesionales en PDF.**
 
 ```mermaid
-flowchart TB
-    subgraph INPUT["📥 ENTRADA Y CONFIGURACIÓN"]
-        A1["🔧 Variables de entorno<br/>• GEMINI_API_KEY<br/>• SSH_HOST, SSH_USER<br/>• SSH_KEY_PATH<br/>• SUDO_PASSWORD (opcional)"]
-        A2["✅ Validación<br/>Verificación de vars requeridas"]
-    end
+flowchart TD
+    A["🔧 CONFIGURACIÓN INICIAL<br/>Variables de entorno + validación"]
+    
+    B["🔐 CONEXIÓN SSH<br/>Ed25519 + verificación interactiva de host"]
+    
+    C["📡 FASE 1: EXTRACCIÓN<br/>• SO / Kernel / Arquitectura<br/>• Usuarios (UID≥1000 o shell válida)<br/>• Anonimización User_N"]
+    
+    D["🔍 FASE 1.5: PUERTOS<br/>• ss -tuln → netstat<br/>• Detección de servicios:<br/>  sudo ss/lsof → /etc/services → tabla interna"]
+    
+    E["💾 DATOS ESTRUCTURADOS<br/>JSON con usuarios anónimos + puertos + servicios"]
+    
+    F["🧠 FASE 2: GEMINI 2.5 FLASH<br/>• Prompt con contexto SO/kernel<br/>• response_schema (Pydantic)<br/>• Temperatura 0.2<br/>• Reintentos 4 (4,8,16s)"]
+    
+    G["📐 ESQUEMA PYDANTIC<br/>score + justificación + resumen<br/>hallazgos + tabla_riesgos + recomendaciones"]
+    
+    H["📄 FASE 3: REPORTE<br/>• JSON → Markdown (control total)<br/>• Markdown → HTML → PDF<br/>• Guardado dual .pdf + .md"]
+    
+    I["✅ AUDITORÍA COMPLETADA<br/>Reporte_Auditoria_timestamp.pdf<br/>Reporte_Auditoria_timestamp.md"]
 
-    subgraph CONNECTION["🔐 CONEXIÓN SSH"]
-        B1["🔑 Autenticación<br/>Ed25519 desde archivo"]
-        B2["⚠️ Verificación host<br/><b>ConfirmarLlaveHostPolicy</b><br/>• Muestra huella digital<br/>• Solicita confirmación<br/>• Guarda en known_hosts"]
-    end
+    A --> B --> C --> D --> E --> F --> G --> H --> I
 
-    subgraph EXTRACTION["📡 FASE 1: EXTRACCIÓN DE DATOS"]
-        C1["🖥️ Información del SO<br/>• /etc/os-release<br/>• lsb_release -d<br/>• uname -r / uname -m"]
-        C2["👤 Cuentas de usuario<br/>cat /etc/passwd<br/>Filtro: UID ≥ 1000 OR shell válida"]
-        C3["🔐 Anonimización<br/>User_1, User_2...<br/>root/daemon/bin exentos"]
-    end
-
-    subgraph PORTS["🔍 FASE 1.5: PUERTOS Y SERVICIOS"]
-        D1["📡 Escaneo de puertos<br/>ss -tuln → fallback netstat"]
-        D2["🎯 Detección de servicios<br/><b>Estrategia en cascada:</b><br/>1. ss con sudo (proceso dueño)<br/>2. lsof con sudo<br/>3. /etc/services<br/>4. Tabla _SERVICIOS_CONOCIDOS<br/>5. unknown"]
-        D3["📋 Resultado por puerto<br/>{puerto, protocolo, servicio}<br/>Ej: 22/tcp → sshd"]
-    end
-
-    subgraph DATA["💾 DATOS ESTRUCTURADOS"]
-        E1["metadata_auditoria<br/>servidor_auditado<br/>{SO, kernel, arquitectura}"]
-        E2["hallazgos_seguridad<br/>{usuarios anonimizados}"]
-        E3["superficie_expuesta<br/>{puertos con servicios}"]
-    end
-
-    subgraph IA["🧠 FASE 2: GEMINI 2.5 FLASH"]
-        F1["📝 Prompt enriquecido<br/>• Contexto del SO/kernel<br/>• Restricción anti-alucinación<br/>• Análisis de CVEs por kernel"]
-        F2["🎯 Structured Outputs<br/>response_schema<br/>ReporteAuditoriaSchema"]
-        F3["🌡️ Temperatura 0.2<br/>Consistencia determinística"]
-        F4["🔄 Reintentos exponenciales<br/>Máx 4 | Delays: 4, 8, 16s"]
-    end
-
-    subgraph SCHEMA["📐 ESQUEMA PYDANTIC"]
-        G1["score_seguridad: int<br/>justificacion_score: str<br/>resumen_ejecutivo: str"]
-        G2["hallazgos_prioritarios: List[str]"]
-        G3["tabla_riesgos: List[RiesgoFila]<br/>• id_riesgo<br/>• riesgo_detectado<br/>• nivel_impacto<br/>• descripcion"]
-        G4["recomendaciones: List[RecomendacionTecnica]<br/>• titulo<br/>• comandos: List[str]<br/>• explicacion"]
-    end
-
-    subgraph RENDER["📄 FASE 3: GENERACIÓN DE REPORTE"]
-        H1["⚙️ Parseo JSON → Markdown<br/>Estructura 100% controlada"]
-        H2["🎨 Markdown → HTML<br/>• Tablas estilizadas<br/>• Bloques de código bash"]
-        H3["📑 xhtml2pdf<br/>HTML → PDF"]
-    end
-
-    subgraph OUTPUT["💾 SALIDA DUAL"]
-        I1["📄 Reporte_Auditoria_<br/>timestamp.pdf"]
-        I2["📝 Reporte_Auditoria_<br/>timestamp.md"]
-    end
-
-    A1 --> A2 --> B1 --> B2
-    B2 --> C1 --> C2 --> C3
-    C3 --> D1 --> D2 --> D3
-    D3 --> E1 --> E2 --> E3
-    E3 --> F1 --> F2 --> F3 --> F4
-    F4 --> G1 --> G2 --> G3 --> G4
-    G4 --> H1 --> H2 --> H3
-    H3 --> I1
-    H3 --> I2
-
-    style INPUT fill:#1e1e2f,stroke:#6c5ce7,stroke-width:2px,color:#fff
-    style CONNECTION fill:#2f1e2f,stroke:#e84393,stroke-width:2px,color:#fff
-    style EXTRACTION fill:#1e2f2f,stroke:#00b894,stroke-width:2px,color:#fff
-    style PORTS fill:#2f2e1e,stroke:#fdcb6e,stroke-width:2px,color:#fff
-    style DATA fill:#1e2f3f,stroke:#0984e3,stroke-width:2px,color:#fff
-    style IA fill:#2f1e3f,stroke:#a29bfe,stroke-width:2px,color:#fff
-    style SCHEMA fill:#2f2e3f,stroke:#dfe6e9,stroke-width:2px,color:#fff
-    style RENDER fill:#1e3f2f,stroke:#55efc4,stroke-width:2px,color:#fff
-    style OUTPUT fill:#3f2e1e,stroke:#ff7675,stroke-width:2px,color:#fff
+    style A fill:#1e1e2f,stroke:#6c5ce7,stroke-width:2px,color:#fff
+    style B fill:#2f1e2f,stroke:#e84393,stroke-width:2px,color:#fff
+    style C fill:#1e2f2f,stroke:#00b894,stroke-width:2px,color:#fff
+    style D fill:#2f2e1e,stroke:#fdcb6e,stroke-width:2px,color:#fff
+    style E fill:#1e2f3f,stroke:#0984e3,stroke-width:2px,color:#fff
+    style F fill:#2f1e3f,stroke:#a29bfe,stroke-width:2px,color:#fff
+    style G fill:#2f2e3f,stroke:#dfe6e9,stroke-width:2px,color:#fff
+    style H fill:#1e3f2f,stroke:#55efc4,stroke-width:2px,color:#fff
+    style I fill:#3f2e1e,stroke:#ff7675,stroke-width:2px,color:#fff
 ```
 ---
 ## ✨ Características
